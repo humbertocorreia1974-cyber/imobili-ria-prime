@@ -1,0 +1,689 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  termsAcceptedAt         DateTime?
+  id                      String              @id @default(cuid())
+  name                    String?
+  email                   String              @unique
+  passwordHash            String
+  plan                    String              @default("free")
+  // 🩹 2026-09-01: apps com múltiplos papéis (jogador/dono, recepção/vet/admin…)
+  // faziam `prisma.user.findMany({ where: { role } })` e o build quebrava
+  // (TS2353: 'role' não existe em UserWhereInput). Agora a fundação tem o campo.
+  role                    String              @default("user")
+  stripeCustomerId        String?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  projects                Project[]
+  visita_userCorretors    Visita[]            @relation("VisitaCorretor")
+  visita_userClientes     Visita[]            @relation("VisitaCliente")
+  proposta_criadoPors     Proposta[]          @relation("PropostaCriador")
+  proposta_aprovadors     Proposta[]          @relation("PropostaAprovador")
+  contrato_userInquilinos Contrato[]          @relation("ContratoInquilino")
+  contrato_userCompradors Contrato[]          @relation("ContratoComprador")
+  manutencao_solicitantes Manutencao[]        @relation("ManutencaoSolicitante")
+  manutencao_aprovadors   Manutencao[]        @relation("ManutencaoAprovador")
+  proprietario            Proprietario?
+  corretor                Corretor?
+  cliente                 Cliente?
+  contrapropostas         Contraproposta[]
+  vistorias               Vistoria[]          @relation("VistoriaResponsavel")
+  notificacaos            Notificacao[]
+  historicoReajustes      HistoricoReajuste[] @relation("ReajusteAplicadoPor")
+  logAuditorias           LogAuditoria[]
+  proprietarioId          String?
+  corretorId              String?
+  clienteId               String?
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+}
+
+model Imobiliaria {
+  id                   String   @id @default(cuid())
+  nome                 String
+  cnpj                 String?  @unique
+  email                String?
+  telefone             String?
+  endereco             String?
+  logoUrl              String?
+  taxaAdministracaoPct Decimal  @default(8.0)
+  diaRepasse           Int      @default(10)
+  indiceReajustePadrao String   @default("IGP-M")
+  gatewayProvider      String   @default("asaas")
+  gatewayApiKey        String?
+  whatsappEnabled      Boolean  @default(false)
+  whatsappPhoneId      String?
+  whatsappToken        String?
+  clicksignEnabled     Boolean  @default(false)
+  clicksignToken       String?
+  reguaCobranca        Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  imoveis       Imovel[]
+  corretores    Corretor[]
+  proprietarios Proprietario[]
+  clientes      Cliente[]
+  contratos     Contrato[]
+  repasses      Repasse[]
+  comissoes     Comissao[]
+  manutencoes   Manutencao[]
+  notificacoes  Notificacao[]
+}
+
+model Proprietario {
+  id            String      @id @default(cuid())
+  userId        String?     @unique
+  user          User?       @relation(fields: [userId], references: [id])
+  imobiliariaId String
+  imobiliaria   Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  nome          String
+  cpfCnpj       String      @unique
+  email         String
+  telefone      String
+  endereco      String?
+  banco         String?
+  agencia       String?
+  conta         String?
+  pixChave      String?
+  observacoes   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  imoveis              Imovel[]
+  repasses             Repasse[]
+  manutencoesAprovadas Manutencao[] @relation("ManutencaoProprietario")
+  propostasAprovadas   Proposta[]   @relation("PropostaProprietario")
+
+  @@index([imobiliariaId])
+}
+
+model Corretor {
+  id                String      @id @default(cuid())
+  userId            String?     @unique
+  user              User?       @relation(fields: [userId], references: [id])
+  imobiliariaId     String
+  imobiliaria       Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  nome              String
+  creci             String?     @unique
+  email             String
+  telefone          String
+  comissaoPadraoPct Decimal     @default(6.0)
+  metaMensal        Decimal?
+  ativo             Boolean     @default(true)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  imoveisCarteira Imovel[]   @relation("ImovelCorretor")
+  visitas         Visita[]
+  propostas       Proposta[]
+  contratos       Contrato[]
+  comissoes       Comissao[]
+
+  @@index([imobiliariaId])
+}
+
+model Cliente {
+  id                     String      @id @default(cuid())
+  userId                 String?     @unique
+  user                   User?       @relation(fields: [userId], references: [id])
+  imobiliariaId          String
+  imobiliaria            Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  nome                   String
+  email                  String?
+  telefone               String
+  cpf                    String?
+  origem                 String      @default("landing")
+  scoreLead              Int         @default(0)
+  scoreUltimaAtualizacao DateTime?
+  interesseTipo          String?
+  faixaPrecoMin          Decimal?
+  faixaPrecoMax          Decimal?
+  bairrosInteresse       Json?
+  observacoes            String?
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+
+  visitas                Visita[]
+  propostas              Proposta[]
+  contratosComoInquilino Contrato[]      @relation("ContratoInquilinoCliente")
+  contratosComoComprador Contrato[]      @relation("ContratoCompradorCliente")
+  interacoes             InteracaoLead[]
+
+  @@index([imobiliariaId])
+}
+
+model InteracaoLead {
+  id          String   @id @default(cuid())
+  clienteId   String
+  cliente     Cliente  @relation(fields: [clienteId], references: [id])
+  tipo        String
+  descricao   String?
+  pontosScore Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([clienteId])
+}
+
+model Imovel {
+  id             String       @id @default(cuid())
+  imobiliariaId  String
+  imobiliaria    Imobiliaria  @relation(fields: [imobiliariaId], references: [id])
+  proprietarioId String
+  proprietario   Proprietario @relation(fields: [proprietarioId], references: [id])
+  corretorId     String?
+  corretor       Corretor?    @relation("ImovelCorretor", fields: [corretorId], references: [id])
+
+  codigo               String   @unique
+  titulo               String
+  descricao            String?
+  tipo                 String // apartamento, casa, terreno, comercial, etc
+  finalidade           String // locacao, venda, ambos
+  situacao             String   @default("disponivel") // disponivel, reservado, locado, vendido
+  situacaoAtualizadaEm DateTime @default(now())
+
+  cep         String?
+  logradouro  String?
+  numero      String?
+  complemento String?
+  bairro      String?
+  cidade      String?
+  estado      String?
+  latitude    Float?
+  longitude   Float?
+
+  areaTotal      Float?
+  areaConstruida Float?
+  quartos        Int?
+  suites         Int?
+  banheiros      Int?
+  vagas          Int?
+  andar          Int?
+  mobiliado      Boolean @default(false)
+  aceitaPets     Boolean @default(false)
+
+  valorAluguel             Decimal?
+  valorVenda               Decimal?
+  valorCondominio          Decimal?
+  valorIptu                Decimal?
+  valorSugeridoMin         Decimal?
+  valorSugeridoMax         Decimal?
+  valorSugeridoCalculadoEm DateTime?
+
+  validado      Boolean   @default(false)
+  validadoEm    DateTime?
+  validadoPorId String?
+  destaque      Boolean   @default(false)
+  publicado     Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  midias          PropertyMedia[]
+  caracteristicas ImovelFeature[]
+  visitas         Visita[]
+  propostas       Proposta[]
+  contratos       Contrato[]
+  vistorias       Vistoria[]
+  manutencoes     Manutencao[]
+
+  @@index([imobiliariaId])
+  @@index([proprietarioId])
+  @@index([corretorId])
+}
+
+model PropertyMedia {
+  id        String   @id @default(cuid())
+  imovelId  String
+  imovel    Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  url       String
+  tipo      String   @default("foto") // foto, video, planta, tour360
+  ordem     Int      @default(0)
+  legenda   String?
+  principal Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([imovelId])
+}
+
+model Feature {
+  id        String   @id @default(cuid())
+  nome      String   @unique
+  categoria String? // lazer, seguranca, infraestrutura
+  icone     String?
+  createdAt DateTime @default(now())
+
+  imoveis ImovelFeature[]
+}
+
+model ImovelFeature {
+  id        String   @id @default(cuid())
+  imovelId  String
+  imovel    Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  featureId String
+  feature   Feature  @relation(fields: [featureId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([imovelId, featureId])
+  @@index([imovelId])
+  @@index([featureId])
+}
+
+model Visita {
+  id             String   @id @default(cuid())
+  imovelId       String
+  imovel         Imovel   @relation(fields: [imovelId], references: [id])
+  corretorId     String
+  corretor       Corretor @relation(fields: [corretorId], references: [id])
+  clienteId      String
+  cliente        Cliente  @relation(fields: [clienteId], references: [id])
+  userIdCorretor String?
+  userCorretor   User?    @relation("VisitaCorretor", fields: [userIdCorretor], references: [id])
+  userIdCliente  String?
+  userCliente    User?    @relation("VisitaCliente", fields: [userIdCliente], references: [id])
+
+  dataHora     DateTime
+  duracaoMin   Int       @default(30)
+  status       String    @default("agendada") // agendada, confirmada, realizada, cancelada, no_show
+  observacoes  String?
+  feedback     String?
+  confirmadaEm DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([corretorId, dataHora])
+  @@index([imovelId, dataHora])
+  @@index([imovelId])
+  @@index([corretorId])
+  @@index([clienteId])
+  @@index([userIdCorretor])
+  @@index([userIdCliente])
+}
+
+model Proposta {
+  id             String        @id @default(cuid())
+  imovelId       String
+  imovel         Imovel        @relation(fields: [imovelId], references: [id])
+  clienteId      String
+  cliente        Cliente       @relation(fields: [clienteId], references: [id])
+  corretorId     String?
+  corretor       Corretor?     @relation(fields: [corretorId], references: [id])
+  proprietarioId String?
+  proprietario   Proprietario? @relation("PropostaProprietario", fields: [proprietarioId], references: [id])
+  criadoPorId    String?
+  criadoPor      User?         @relation("PropostaCriador", fields: [criadoPorId], references: [id])
+  aprovadorId    String?
+  aprovador      User?         @relation("PropostaAprovador", fields: [aprovadorId], references: [id])
+
+  tipo            String // locacao, compra
+  valor           Decimal
+  valorCondominio Decimal?
+  valorIptu       Decimal?
+  condicoes       String?
+  garantiaTipo    String? // fiador, seguro_fianca, caucao, titulo_capitalizacao
+  prazoMeses      Int?
+  dataInicio      DateTime?
+  status          String    @default("em_analise") // em_analise, contraproposta, aprovada, rejeitada, cancelada, convertida
+  aprovadaEm      DateTime?
+  motivoRejeicao  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  contrapropostas Contraproposta[]
+  contrato        Contrato?
+  contratoId      String?
+
+  @@index([imovelId])
+  @@index([clienteId])
+  @@index([corretorId])
+  @@index([proprietarioId])
+  @@index([criadoPorId])
+  @@index([aprovadorId])
+}
+
+model Contraproposta {
+  id         String   @id @default(cuid())
+  propostaId String
+  proposta   Proposta @relation(fields: [propostaId], references: [id], onDelete: Cascade)
+  autorId    String?
+  autor      User?    @relation(fields: [autorId], references: [id])
+  autorTipo  String // cliente, proprietario, corretor, admin
+  valor      Decimal
+  condicoes  String?
+  mensagem   String?
+  status     String   @default("pendente") // pendente, aceita, rejeitada
+  createdAt  DateTime @default(now())
+
+  @@index([propostaId])
+  @@index([autorId])
+}
+
+model Contrato {
+  id            String      @id @default(cuid())
+  imobiliariaId String
+  imobiliaria   Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  imovelId      String
+  imovel        Imovel      @relation(fields: [imovelId], references: [id])
+  propostaId    String?     @unique
+  proposta      Proposta?   @relation(fields: [propostaId], references: [id])
+  corretorId    String?
+  corretor      Corretor?   @relation(fields: [corretorId], references: [id])
+
+  inquilinoId     String?
+  inquilino       Cliente? @relation("ContratoInquilinoCliente", fields: [inquilinoId], references: [id])
+  compradorId     String?
+  comprador       Cliente? @relation("ContratoCompradorCliente", fields: [compradorId], references: [id])
+  userIdInquilino String?
+  userInquilino   User?    @relation("ContratoInquilino", fields: [userIdInquilino], references: [id])
+  userIdComprador String?
+  userComprador   User?    @relation("ContratoComprador", fields: [userIdComprador], references: [id])
+
+  numero             String    @unique
+  tipo               String // locacao, venda
+  status             String    @default("ativo") // rascunho, ativo, encerrado, rescindido, inadimplente
+  valorMensal        Decimal?
+  valorTotal         Decimal?
+  valorCaucao        Decimal?
+  garantiaTipo       String?
+  garantiaDetalhes   String?
+  indiceReajuste     String    @default("IGP-M")
+  percentualReajuste Decimal?
+  dataInicio         DateTime
+  dataFim            DateTime?
+  diaVencimento      Int       @default(10)
+  proximoReajusteEm  DateTime?
+  assinaturaProvider String? // clicksign, manual
+  assinaturaDocId    String?
+  assinaturaUrl      String?
+  assinadoEm         DateTime?
+  pdfUrl             String?
+  observacoes        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  parcelas           Parcela[]
+  repasses           Repasse[]
+  comissoes          Comissao[]
+  historicoReajustes HistoricoReajuste[]
+  vistorias          Vistoria[]
+
+  @@index([imobiliariaId])
+  @@index([imovelId])
+  @@index([corretorId])
+  @@index([inquilinoId])
+  @@index([compradorId])
+  @@index([userIdInquilino])
+  @@index([userIdComprador])
+}
+
+model Parcela {
+  id             String    @id @default(cuid())
+  contratoId     String
+  contrato       Contrato  @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  competencia    String // YYYY-MM
+  numero         Int
+  valorBruto     Decimal
+  valorDesconto  Decimal   @default(0)
+  valorJuros     Decimal   @default(0)
+  valorMulta     Decimal   @default(0)
+  valorTotal     Decimal
+  dataVencimento DateTime
+  dataPagamento  DateTime?
+  status         String    @default("pendente") // pendente, pago, atrasado, cancelado, negociado
+  diasAtraso     Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  boletos  Boleto[]
+  repasses Repasse[]
+
+  @@unique([contratoId, competencia])
+  @@index([status, dataVencimento])
+  @@index([contratoId])
+}
+
+model Boleto {
+  id              String    @id @default(cuid())
+  parcelaId       String
+  parcela         Parcela   @relation(fields: [parcelaId], references: [id], onDelete: Cascade)
+  gateway         String    @default("asaas")
+  gatewayId       String?   @unique
+  tipo            String    @default("boleto") // boleto, pix, link
+  linhaDigitavel  String?
+  codigoBarras    String?
+  pixCopiaCola    String?
+  pixQrCodeUrl    String?
+  linkPagamento   String?
+  valor           Decimal
+  dataVencimento  DateTime
+  dataPagamento   DateTime?
+  status          String    @default("pendente") // pendente, pago, vencido, cancelado, estornado
+  urlPdf          String?
+  payloadResposta Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status, dataVencimento])
+  @@index([parcelaId])
+}
+
+model Repasse {
+  id             String       @id @default(cuid())
+  imobiliariaId  String
+  imobiliaria    Imobiliaria  @relation(fields: [imobiliariaId], references: [id])
+  proprietarioId String
+  proprietario   Proprietario @relation(fields: [proprietarioId], references: [id])
+  contratoId     String?
+  contrato       Contrato?    @relation(fields: [contratoId], references: [id])
+  parcelaId      String?
+  parcela        Parcela?     @relation(fields: [parcelaId], references: [id])
+
+  competencia          String // YYYY-MM
+  valorBruto           Decimal
+  taxaAdministracaoPct Decimal
+  valorTaxaAdmin       Decimal
+  descontos            Decimal   @default(0)
+  valorLiquido         Decimal
+  status               String    @default("pendente") // pendente, processado, pago, retido
+  dataPrevista         DateTime
+  dataPagamento        DateTime?
+  comprovanteUrl       String?
+  observacoes          String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([proprietarioId, competencia])
+  @@index([imobiliariaId])
+  @@index([proprietarioId])
+  @@index([contratoId])
+  @@index([parcelaId])
+}
+
+model Comissao {
+  id            String      @id @default(cuid())
+  imobiliariaId String
+  imobiliaria   Imobiliaria @relation(fields: [imobiliariaId], references: [id])
+  corretorId    String
+  corretor      Corretor    @relation(fields: [corretorId], references: [id])
+  contratoId    String?
+  contrato      Contrato?   @relation(fields: [contratoId], references: [id])
+
+  origem        String // venda, locacao
+  baseCalculo   Decimal
+  percentual    Decimal
+  valor         Decimal
+  status        String    @default("pendente") // pendente, aprovada, paga, cancelada
+  competencia   String?
+  dataPagamento DateTime?
+  observacoes   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([corretorId, status])
+  @@index([imobiliariaId])
+  @@index([corretorId])
+  @@index([contratoId])
+}
+
+model Vistoria {
+  id            String    @id @default(cuid())
+  imovelId      String
+  imovel        Imovel    @relation(fields: [imovelId], references: [id])
+  contratoId    String?
+  contrato      Contrato? @relation(fields: [contratoId], references: [id])
+  responsavelId String?
+  responsavel   User?     @relation("VistoriaResponsavel", fields: [responsavelId], references: [id])
+
+  tipo                      String // entrada, saida
+  status                    String    @default("em_andamento") // em_andamento, concluida, assinada, contestada
+  dataVistoria              DateTime  @default(now())
+  observacoes               String?
+  pdfUrl                    String?
+  assinaturaInquilinoUrl    String?
+  assinaturaProprietarioUrl String?
+  concluidaEm               DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  itens             ChecklistItem[]
+  vistoriaEntradaId String?
+  vistoriaEntrada   Vistoria?       @relation("VistoriaComparativo", fields: [vistoriaEntradaId], references: [id])
+  vistoriasSaida    Vistoria[]      @relation("VistoriaComparativo")
+
+  @@index([imovelId])
+  @@index([contratoId])
+  @@index([responsavelId])
+  @@index([vistoriaEntradaId])
+}
+
+model ChecklistItem {
+  id              String   @id @default(cuid())
+  vistoriaId      String
+  vistoria        Vistoria @relation(fields: [vistoriaId], references: [id], onDelete: Cascade)
+  comodo          String // sala, cozinha, quarto_1, banheiro_social, etc
+  item            String // parede, piso, porta, janela, tomada, etc
+  estado          String   @default("bom") // otimo, bom, regular, ruim, danificado
+  descricao       String?
+  fotoUrl         String?
+  fotoObrigatoria Boolean  @default(true)
+  ordem           Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([vistoriaId, comodo])
+  @@index([vistoriaId])
+}
+
+model Manutencao {
+  id             String        @id @default(cuid())
+  imobiliariaId  String
+  imobiliaria    Imobiliaria   @relation(fields: [imobiliariaId], references: [id])
+  imovelId       String
+  imovel         Imovel        @relation(fields: [imovelId], references: [id])
+  solicitanteId  String?
+  solicitante    User?         @relation("ManutencaoSolicitante", fields: [solicitanteId], references: [id])
+  aprovadorId    String?
+  aprovador      User?         @relation("ManutencaoAprovador", fields: [aprovadorId], references: [id])
+  proprietarioId String?
+  proprietario   Proprietario? @relation("ManutencaoProprietario", fields: [proprietarioId], references: [id])
+
+  titulo           String
+  descricao        String
+  categoria        String? // hidraulica, eletrica, pintura, estrutural, outros
+  urgencia         String    @default("normal") // baixa, normal, alta, urgente
+  status           String    @default("aberta") // aberta, orcamento, aguardando_aprovacao, aprovada, rejeitada, em_execucao, concluida, cancelada
+  valorOrcamento   Decimal?
+  valorAprovado    Decimal?
+  prestadorNome    String?
+  prestadorContato String?
+  fotos            Json?
+  aprovadaEm       DateTime?
+  motivoRejeicao   String?
+  concluidaEm      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([imovelId, status])
+  @@index([imobiliariaId])
+  @@index([imovelId])
+  @@index([solicitanteId])
+  @@index([aprovadorId])
+  @@index([proprietarioId])
+}
+
+model Notificacao {
+  id            String       @id @default(cuid())
+  imobiliariaId String?
+  imobiliaria   Imobiliaria? @relation(fields: [imobiliariaId], references: [id])
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id])
+  canal         String // email, whatsapp, sms, push
+  evento        String // boleto_gerado, boleto_vencido, proposta_recebida, contrato_assinado, etc
+  destinatario  String
+  assunto       String?
+  mensagem      String
+  status        String       @default("pendente") // pendente, enviada, entregue, lida, falha
+  providerId    String?
+  erro          String?
+  payload       Json?
+  enviadaEm     DateTime?
+  createdAt     DateTime     @default(now())
+
+  @@index([status, canal])
+  @@index([userId, createdAt])
+  @@index([imobiliariaId])
+  @@index([userId])
+}
+
+model HistoricoReajuste {
+  id            String   @id @default(cuid())
+  contratoId    String
+  contrato      Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  aplicadoPorId String?
+  aplicadoPor   User?    @relation("ReajusteAplicadoPor", fields: [aplicadoPorId], references: [id])
+
+  indice        String // IGP-M, IPCA, INCC
+  percentual    Decimal
+  valorAnterior Decimal
+  valorNovo     Decimal
+  competencia   String // YYYY-MM
+  dataAplicacao DateTime @default(now())
+  observacoes   String?
+  createdAt     DateTime @default(now())
+
+  @@index([contratoId, dataAplicacao])
+  @@index([contratoId])
+  @@index([aplicadoPorId])
+}
+
+model LogAuditoria {
+  id              String   @id @default(cuid())
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id])
+  acao            String
+  entidade        String
+  entidadeId      String?
+  dadosAnteriores Json?
+  dadosNovos      Json?
+  ip              String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+
+  @@index([entidade, entidadeId])
+  @@index([userId, createdAt])
+  @@index([userId])
+}
